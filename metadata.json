@@ -1,0 +1,6 @@
+{
+  "name": "SMV Data Bank",
+  "description": "Standard Minute Value (SMV) database and analytics system for garment manufacturing operations.",
+  "permissions": [],
+  "capabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

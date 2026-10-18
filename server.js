@@ -2,7 +2,7 @@
 // SMV Data Bank - zero-dependency server (Node.js 22.13+). Run: node server.js
 const http = require('http'), fs = require('fs'), path = require('path'), crypto = require('crypto');
 const { DatabaseSync } = require('node:sqlite');
-const PORT = process.env.PORT || 3000, DBF = path.join(__dirname, 'data', 'smv.db'), PUB = path.join(__dirname, 'public') + path.sep;
+const PORT = 3000, DBF = path.join(__dirname, 'data', 'smv.db'), PUB = path.join(__dirname, 'public') + path.sep;
 const F = ['section', 'sub_section', 'process_name', 'machine_type', 'smv', 'frequency', 'length_range', 'process_diagram', 'gsd_code', 'buyer', 'remarks', 'updated_on', 'videos', 'pdfs'];
 const today = () => new Date().toISOString().slice(0, 10);
 const hash = (p, s = crypto.randomBytes(16).toString('hex')) => s + ':' + crypto.scryptSync(p, s, 64).toString('hex');
@@ -83,8 +83,8 @@ open();
 http.createServer(async (req, res) => {
   try {
     const u = new URL(req.url, 'http://x'), p = u.pathname, m = req.method;
-    res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('X-Frame-Options', 'DENY');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; frame-src https://www.youtube-nocookie.com https://drive.google.com; media-src 'self' https:; frame-ancestors 'none'");
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; frame-src https://www.youtube-nocookie.com https://drive.google.com; media-src 'self' https:;");
     if (!p.startsWith('/api/')) return serve(req, p, res);
     if (m !== 'GET' && req.headers['x-requested-with'] !== 'smv') return json(res, 403, { error: 'Bad request' });
     let mm;
@@ -101,10 +101,11 @@ http.createServer(async (req, res) => {
       const x = db.prepare('SELECT * FROM users WHERE email=?').get(email);
       if (!x || !x.active || !verify(String(b.password || ''), x.pass)) { if (++t.n >= 5) { t.until = Date.now() + 6e5; t.n = 0; } tries.set(key, t); return json(res, 401, { error: 'Invalid email or password' }); }
       tries.delete(key); const sid = crypto.randomBytes(32).toString('hex'); sessions.set(sid, { uid: x.id, exp: Date.now() + 8 * 36e5 });
-      res.setHeader('Set-Cookie', `sid=${sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800`); audit(email, 'LOGIN', x.id);
-      return json(res, 200, { id: x.id, name: x.name, email, role: x.role });
+      res.setHeader('Set-Cookie', `sid=${sid}; HttpOnly; SameSite=Lax; Path=/; Max-Age=28800`); audit(email, 'LOGIN', x.id);
+      return json(res, 200, { id: x.id, name: x.name, email, role: x.role, token: sid });
     }
-    const sid = (req.headers.cookie || '').match(/(?:^|;\s*)sid=([0-9a-f]+)/)?.[1], s = sessions.get(sid);
+    const bearer = (req.headers.authorization || '').match(/^Bearer\s+([0-9a-f]+)/i)?.[1];
+    const sid = bearer || (req.headers.cookie || '').match(/(?:^|;\s*)sid=([0-9a-f]+)/)?.[1], s = sessions.get(sid);
     if (m === 'POST' && p === '/api/logout') { sessions.delete(sid); res.setHeader('Set-Cookie', 'sid=; Max-Age=0; Path=/'); return json(res, 200, { ok: true }); }
     const me = s && s.exp > Date.now() ? db.prepare('SELECT id,name,email,role,active FROM users WHERE id=?').get(s.uid) : null;
     if (!me || !me.active) return json(res, 401, { error: 'Please log in' });
@@ -206,4 +207,4 @@ http.createServer(async (req, res) => {
   } catch (err) {
     console.error(err); if (!res.headersSent) json(res, err instanceof SyntaxError ? 400 : 500, { error: err instanceof SyntaxError ? 'Invalid request data' : 'Server error' });
   }
-}).listen(PORT, () => { console.log(`SMV Data Bank running at http://localhost:${PORT}`); });
+}).listen(PORT, '0.0.0.0', () => { console.log(`SMV Data Bank running at http://0.0.0.0:${PORT}`); });

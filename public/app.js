@@ -15,29 +15,76 @@ const vids = s => { try { const a = Array.isArray(s) ? s : JSON.parse(s || '[]')
 const vsrc = u => /^https?:\/\//i.test(u) ? u : 'videos/' + encodeURIComponent(u);
 const furl = async id => window.LOCAL_API ? URL.createObjectURL(await api('/files/' + id)) : '/api/files/' + id;
 const fsize = n => n > 1e6 ? (n / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1e3)) + ' KB';
-const openPdf = async f => { try { window.open(await furl(f.id), '_blank'); } catch (x) { toast(x.message, 'danger'); } };
-async function vplayer(u) {
-  if (typeof u === 'object') return `<video class="w-100 rounded bg-dark" style="max-height:62vh" controls src="${h(await furl(u.id))}"></video>`;
-  const fr = src => `<iframe class="w-100 rounded" style="aspect-ratio:16/9;border:0" src="${src}" allow="fullscreen" allowfullscreen></iframe>`;
-  let m = u.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/))([\w-]{11})/i);
-  if (m) return fr('https://www.youtube-nocookie.com/embed/' + m[1]);
-  if ((m = u.match(/drive\.google\.com\/file\/d\/([\w-]+)/i))) return fr(`https://drive.google.com/file/d/${m[1]}/preview`);
-  if (/\.(mp4|webm|ogg|mov|m4v)(\?.*)?$/i.test(u)) return `<video class="w-100 rounded bg-dark" style="max-height:62vh" controls src="${h(vsrc(u))}"></video>`;
-  return `<div class="p-4 text-center border rounded"><p class="mb-2">This link cannot play inside the app.</p><a class="btn btn-primary btn-sm" target="_blank" rel="noopener" href="${h(u)}">Open video in a new tab</a></div>`;
+const openPdf = async f => {
+  try {
+    const url = await furl(f.id);
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    document.body.append(a);
+    a.click();
+    a.remove();
+  } catch (x) { toast(x.message, 'danger'); }
+};
+
+function appConfirm(msg) {
+  return new Promise(resolve => {
+    try {
+      const m = document.createElement('div');
+      m.className = 'modal fade';
+      m.innerHTML = `<div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header py-2"><h6 class="modal-title">Confirm</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><p class="mb-0">${h(msg)}</p></div><div class="modal-footer py-2"><button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-danger btn-sm" id="c-ok">Confirm</button></div></div></div>`;
+      document.body.append(m);
+      const bm = new bootstrap.Modal(m);
+      let ok = false;
+      m.querySelector('#c-ok').onclick = () => { ok = true; bm.hide(); };
+      m.addEventListener('hidden.bs.modal', () => { m.remove(); resolve(ok); });
+      bm.show();
+    } catch {
+      resolve(true);
+    }
+  });
 }
-function player(r) {
-  const L = vids(r.videos), P = vids(r.pdfs), m = document.createElement('div'); m.className = 'modal fade';
-  m.innerHTML = `<div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content"><div class="modal-header py-2"><h6 class="modal-title">${h(r.process_name)}</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body">${L.length ? `<div class="d-flex flex-wrap gap-1 mb-3">${L.map((u, i) => `<button class="btn btn-sm" data-i="${i}">Video ${i + 1}</button>`).join('')}</div><div id="vp"></div>` : ''}${P.length ? `<div class="${L.length ? 'mt-3 pt-3 border-top' : ''}"><div class="card-title">GSD analysis PDF</div><div class="d-flex flex-wrap gap-1">${P.map((f, i) => `<button class="btn btn-sm btn-outline-danger" data-pf="${i}">PDF ${i + 1}: ${h(f.name)}</button>`).join('')}</div></div>` : ''}</div></div></div>`;
-  document.body.append(m); const bm = new bootstrap.Modal(m); bm.show(); m.addEventListener('hidden.bs.modal', () => m.remove());
-  const play = async i => { m.querySelectorAll('[data-i]').forEach(b => b.className = `btn btn-sm ${+b.dataset.i === i ? 'btn-primary' : 'btn-outline-primary'}`); m.querySelector('#vp').innerHTML = await vplayer(L[i]); };
-  m.querySelectorAll('[data-i]').forEach(b => b.onclick = () => play(+b.dataset.i)); m.querySelectorAll('[data-pf]').forEach(b => b.onclick = () => openPdf(P[+b.dataset.pf]));
-  if (L.length) play(0);
+
+function appPrompt(msg, defaultValue = '') {
+  return new Promise(resolve => {
+    try {
+      const m = document.createElement('div');
+      m.className = 'modal fade';
+      m.innerHTML = `<div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header py-2"><h6 class="modal-title">Input</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><p class="small mb-2">${h(msg)}</p><input class="form-control form-control-sm" id="p-val" value="${h(defaultValue)}"></div><div class="modal-footer py-2"><button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary btn-sm" id="p-ok">Submit</button></div></div></div>`;
+      document.body.append(m);
+      const bm = new bootstrap.Modal(m);
+      let val = null;
+      const submit = () => { val = m.querySelector('#p-val').value; bm.hide(); };
+      m.querySelector('#p-ok').onclick = submit;
+      m.querySelector('#p-val').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } };
+      m.addEventListener('shown.bs.modal', () => m.querySelector('#p-val').focus());
+      m.addEventListener('hidden.bs.modal', () => { m.remove(); resolve(val); });
+      bm.show();
+    } catch {
+      resolve(defaultValue);
+    }
+  });
 }
-const toast = (msg, type = 'success') => { const d = document.createElement('div'); d.className = `alert alert-${type} shadow py-2 mb-2`; d.textContent = msg; $('#toasts').append(d); setTimeout(() => d.remove(), 5000); };
+
+let authToken = localStorage.getItem('smv_token') || '';
 
 async function api(u, o = {}) {
-  const r = await fetch('/api' + u, { method: o.method || 'GET', headers: { 'X-Requested-With': 'smv', ...(o.json ? { 'Content-Type': 'application/json' } : {}) }, body: o.json ? JSON.stringify(o.json) : o.body });
-  if (!r.ok) { const e = await r.json().catch(() => ({})); if (r.status === 401 && me) showAuth(); throw new Error(e.error || r.statusText); }
+  const headers = {
+    'X-Requested-With': 'smv',
+    ...(authToken ? { 'Authorization': 'Bearer ' + authToken } : {}),
+    ...(o.json ? { 'Content-Type': 'application/json' } : {})
+  };
+  const r = await fetch('/api' + u, { method: o.method || 'GET', headers, body: o.json ? JSON.stringify(o.json) : o.body });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    if (r.status === 401) {
+      authToken = '';
+      localStorage.removeItem('smv_token');
+      if (me) showAuth();
+    }
+    throw new Error(e.error || r.statusText);
+  }
   return (r.headers.get('content-type') || '').includes('json') ? r.json() : r.blob();
 }
 
@@ -52,7 +99,17 @@ function showAuth() {
   <form id="su" class="tab-pane fade"><input class="form-control mb-2" name="name" placeholder="Full name" required><input class="form-control mb-2" name="email" type="email" placeholder="Email" required><input class="form-control mb-3" name="password" type="password" minlength="8" placeholder="Password (8+ characters)" required><button class="btn btn-success w-100">Create account</button></form>
   </div></div></div></section></div>`;
   const val = f => Object.fromEntries(new FormData(f));
-  $('#li').onsubmit = async e => { e.preventDefault(); try { me = await api('/login', { method: 'POST', json: val(e.target) }); boot(); } catch (x) { toast(x.message, 'danger'); } };
+  $('#li').onsubmit = async e => {
+    e.preventDefault();
+    try {
+      me = await api('/login', { method: 'POST', json: val(e.target) });
+      if (me.token) {
+        authToken = me.token;
+        localStorage.setItem('smv_token', authToken);
+      }
+      boot();
+    } catch (x) { toast(x.message, 'danger'); }
+  };
   $('#su').onsubmit = async e => { e.preventDefault(); try { await api('/register', { method: 'POST', json: val(e.target) }); toast('Account created - you can log in now'); e.target.reset(); bootstrap.Tab.getOrCreateInstance($('[data-bs-target="#li"]')).show(); } catch (x) { toast(x.message, 'danger'); } };
 }
 
@@ -62,7 +119,12 @@ async function boot() {
   <div id="nv" class="collapse navbar-collapse"><div class="navbar-nav me-auto">${TABS.filter(t => !t[2] || isAdmin()).map(t => `<a href="#" class="nav-link" data-v="${t[0]}">${t[1]}</a>`).join('')}</div>
   <div class="d-flex align-items-center gap-2 mt-2 mt-md-0"><span class="avatar">${h((me.name.trim()[0] || '?').toUpperCase())}</span><span class="who">${h(me.name)}<br><small>${isAdmin() ? 'Super Admin' : 'Standard User'}</small></span><button class="btn btn-sm btn-light ms-2" id="out">Logout</button></div></div></div></nav><main class="container-fluid py-3 px-md-4" style="max-width:1500px" id="view"></main>`;
   $$('[data-v]').forEach(a => a.onclick = e => { e.preventDefault(); go(a.dataset.v); });
-  $('#out').onclick = async () => { await api('/logout', { method: 'POST' }).catch(() => { }); showAuth(); };
+  $('#out').onclick = async () => {
+    await api('/logout', { method: 'POST' }).catch(() => { });
+    authToken = '';
+    localStorage.removeItem('smv_token');
+    showAuth();
+  };
   meta = await api('/meta').catch(() => ({}));
   clearInterval(timer); timer = setInterval(() => { if (!$('.modal.show') && ['dash', 'data'].includes(view)) go(view, true); }, 15000); // live refresh
   go('dash');
@@ -123,7 +185,7 @@ async function load() {
   $$('[data-pv]').forEach(b => b.onclick = () => player(cache.find(r => r.id == b.dataset.pv)));
   $$('[data-pd]').forEach(b => b.onclick = () => { const r = cache.find(x => x.id == b.dataset.pd), P = vids(r.pdfs); P.length === 1 ? openPdf(P[0]) : player(r); });
   $$('[data-x]').forEach(b => b.onclick = async () => {
-    if (!confirm('Delete record #' + b.dataset.x + '? This is recorded in the audit trail.')) return;
+    if (!await appConfirm('Delete record #' + b.dataset.x + '? This is recorded in the audit trail.')) return;
     try { await api('/smv/' + b.dataset.x, { method: 'DELETE' }); toast('Record deleted'); meta = await api('/meta'); load(); } catch (x) { toast(x.message, 'danger'); }
   });
 }
@@ -185,7 +247,8 @@ async function importFile(e) {
     return { ...o, section: sec, sub_section: sub, videos: JSON.stringify(vc.map(i => String(r[i]).trim()).filter(Boolean)) };
   });
   if (!rows.length) return toast('No valid rows found in the file', 'danger');
-  const mode = (prompt(`Import ${rows.length} rows.\nType APPEND to add them, or REPLACE to delete all existing records first:`, 'APPEND') || '').toUpperCase();
+  const modeVal = await appPrompt(`Import ${rows.length} rows.\nType APPEND to add them, or REPLACE to delete all existing records first:`, 'APPEND');
+  const mode = (modeVal || '').toUpperCase();
   if (!['APPEND', 'REPLACE'].includes(mode)) return;
   try { const r = await api('/smv/import', { method: 'POST', json: { rows, mode: mode.toLowerCase() } }); toast(`Imported ${r.imported}, rejected ${r.rejected}${r.errors[0] ? ' - ' + r.errors[0] : ''}`, r.rejected ? 'warning' : 'success'); meta = await api('/meta'); dataView(); }
   catch (x) { toast(x.message, 'danger'); }
@@ -197,8 +260,8 @@ async function users() {
   const act = async (id, o, msg) => { try { await api('/users/' + id, o); toast(msg); users(); } catch (x) { toast(x.message, 'danger'); } };
   $$('[data-r]').forEach(s => s.onchange = () => act(s.dataset.r, { method: 'PUT', json: { role: s.value } }, 'Role updated'));
   $$('[data-a]').forEach(b => b.onclick = () => act(b.dataset.a, { method: 'PUT', json: { active: b.dataset.on !== '1' } }, 'Status updated'));
-  $$('[data-p]').forEach(b => b.onclick = () => { const p = prompt('New password (8+ characters):'); if (p) act(b.dataset.p, { method: 'PUT', json: { password: p } }, 'Password reset'); });
-  $$('[data-d]').forEach(b => b.onclick = () => confirm('Delete this user?') && act(b.dataset.d, { method: 'DELETE' }, 'User deleted'));
+  $$('[data-p]').forEach(b => b.onclick = async () => { const p = await appPrompt('New password (8+ characters):'); if (p) act(b.dataset.p, { method: 'PUT', json: { password: p } }, 'Password reset'); });
+  $$('[data-d]').forEach(b => b.onclick = async () => (await appConfirm('Delete this user?')) && act(b.dataset.d, { method: 'DELETE' }, 'User deleted'));
 }
 
 async function audit() {
@@ -211,7 +274,7 @@ async function backup() {
   <div class="col-md-6"><div class="card shadow-sm border-warning"><div class="card-body"><h6>Restore</h6><p class="small text-muted">Replaces ALL current data with the chosen backup. The previous database is kept as data/smv.db.pre-restore.</p><input type="file" id="rf" accept=".db" class="form-control form-control-sm mb-2"><button class="btn btn-warning btn-sm" id="rs">Restore backup</button></div></div></div></div>`;
   $('#bk').onclick = async () => { try { const a = document.createElement('a'); a.href = URL.createObjectURL(await api('/backup')); a.download = `smv-backup-${new Date().toISOString().slice(0, 10)}.db`; a.click(); } catch (x) { toast(x.message, 'danger'); } };
   $('#rs').onclick = async () => {
-    const f = $('#rf').files[0]; if (!f) return toast('Choose a backup file first', 'warning'); if (!confirm('Replace ALL current data with this backup?')) return;
+    const f = $('#rf').files[0]; if (!f) return toast('Choose a backup file first', 'warning'); if (!await appConfirm('Replace ALL current data with this backup?')) return;
     try { await api('/restore', { method: 'POST', body: f }); toast('Database restored - please log in again'); showAuth(); } catch (x) { toast(x.message, 'danger'); }
   };
 }
